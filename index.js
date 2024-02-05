@@ -108,6 +108,63 @@ function calculateRouteFromAtoB(platform, startPoint, endPoint) {
     );
 }
 
+// Function to handle the initial car route calculation
+function onCarRouteSuccess(result) {
+    var route = result.routes[0];
+    var lineString = H.geo.LineString.fromFlexiblePolyline(route.sections[0].polyline);
+
+    // Create a polyline to display the car route:
+    var carRouteLine = new H.map.Polyline(lineString, {
+        style: { strokeColor: 'blue', lineWidth: 3 }
+    });
+
+    // Add the car route polyline to the map:
+    map.addObjects([carRouteLine]);
+
+    // Calculate an optimized ambulance route based on real-time traffic
+    calculateAmbulanceRoute(platform, route, carRouteLine);
+}
+
+// Function to calculate an optimized ambulance route based on real-time traffic
+function calculateAmbulanceRoute(platform, carRoute, carRouteLine) {
+    var router = platform.getRoutingService(null, 8),
+        routeRequestParams = {
+            routingMode: 'fast',
+            transportMode: 'car',
+            origin: `${carRoute.sections[0].departure.place.location.lat},${carRoute.sections[0].departure.place.location.lng}`, // Starting point
+            destination: `${carRoute.sections[0].arrival.place.location.lat},${carRoute.sections[0].arrival.place.location.lng}`, // Ending point
+            return: 'polyline,turnByTurnActions,actions,instructions,travelSummary',
+            departure: 'now',
+            vehicleLoadType: 'emergencyVehicle'
+        };
+
+    router.calculateRoute(
+        routeRequestParams,
+        onAmbulanceRouteSuccess,
+        onError
+    );
+}
+
+function onAmbulanceRouteSuccess(result) {
+    var route = result.routes[0];
+    var lineString = H.geo.LineString.fromFlexiblePolyline(route.sections[0].polyline);
+
+    // Create a polyline to display the ambulance route:
+    var ambulanceRouteLine = new H.map.Polyline(lineString, {
+        style: { strokeColor: 'red', lineWidth: 3 }
+    });
+
+    // Add the ambulance route polyline to the map:
+    map.addObjects([ambulanceRouteLine]);
+
+    // Set the map's viewport to make the whole ambulance route visible:
+    map.getViewModel().setLookAtData({ bounds: ambulanceRouteLine.getBoundingBox() });
+}
+
+function onError(error) {
+    alert('Can\'t reach the remote server');
+}
+
 function onSuccess(result) {
     var route = result.routes[0];
     var lineString = H.geo.LineString.fromFlexiblePolyline(route.sections[0].polyline);
