@@ -9,6 +9,10 @@
         <script type="text/javascript" src="https://js.api.here.com/v3/3.1/mapsjs-service.js"></script>
         <script type="text/javascript" src="https://js.api.here.com/v3/3.1/mapsjs-ui.js"></script>
         <script type="text/javascript" src="https://js.api.here.com/v3/3.1/mapsjs-mapevents.js"></script>
+
+        <!-- Include HERE Traffic API v7 -->
+        <script type="text/javascript" src="https://js.api.here.com/v3/3.1/mapsjs-traffic.js"></script>
+
         <style>
             #mapContainer {
                 height: 400px;
@@ -19,10 +23,202 @@
 
     <body>
         <div id="mapContainer"></div>
-        <input type="text" id="searchQuery" placeholder="Search places in Delhi" oninput="getAutoSuggestions()" />
-        <div id="suggestions" style="background: white; position: absolute; z-index: 5;"></div>
+        <input type="text" id="startAddress" placeholder="Enter start address"
+            oninput="getAutoSuggestions('startAddress', 'startSuggestions')" />
+        <div id="startSuggestions" style="background: white; position: absolute; z-index: 5;"></div>
+        <input type="text" id="endAddress" placeholder="Enter destination address"
+            oninput="getAutoSuggestions('endAddress', 'endSuggestions')" />
+        <div id="endSuggestions" style="background: white; position: absolute; z-index: 5;"></div>
         <button onclick="searchPlaces()">Search</button>
-        <script src = "./index.js">
+        <script>
+            // Initialize the platform object:
+            var platform = new H.service.Platform({
+                'apikey': 'WpGl94v7XCZKZj1G0WAmev-yvMvZ65Olj24cfbiJYyE'
+            });
+
+            // Obtain the default map types from the platform object
+            var maptypes = platform.createDefaultLayers();
+
+            // Instantiate (and display) a map object:
+            var map = new H.Map(
+                document.getElementById('mapContainer'),
+                maptypes.vector.normal.map,
+                {
+                    zoom: 10,
+                    center: { lng: 77.1025, lat: 28.7041 } // Delhi's Coordinates
+                }
+            );
+
+            // Create the default UI components
+            var ui = H.ui.UI.createDefault(map, maptypes);
+
+            // Enable the event system on the map instance:
+            var mapEvents = new H.mapevents.MapEvents(map);
+
+            // Add event listeners:
+            map.addEventListener('tap', function (evt) {
+                // Log 'tap' and 'mouse' events:
+                console.log(evt.type, evt.currentPointer.type);
+            });
+
+            // Instantiate the default behavior, providing the mapEvents object: 
+            var behavior = new H.mapevents.Behavior(mapEvents);
+
+
+            var routeObjects = [];
+
+            // Example: Add a marker for Delhi
+            //var marker = new H.map.Marker({ lat: 28.7041, lng: 77.1025 });
+            //map.addObject(marker);
+
+            // Function to fetch auto-suggestions
+            function getAutoSuggestions(inputId, suggestionsId) {
+                var query = document.getElementById(inputId).value;
+                if (query.length < 3) { // Wait for at least 3 characters before suggesting
+                    document.getElementById(suggestionsId).innerHTML = '';
+                    return;
+                }
+
+                var autosuggestService = platform.getSearchService(),
+                    params = {
+                        q: query,
+                        at: '28.7041,77.1025', // Center the suggestions around Delhi
+                        in: 'countryCode:IND'
+                    };
+
+                autosuggestService.autosuggest(params, (result) => {
+                    // Display the suggestions
+                    var suggestionsContainer = document.getElementById(suggestionsId);
+                    suggestionsContainer.innerHTML = ''; // Clear previous suggestions
+                    result.items.forEach((item) => {
+                        var div = document.createElement('div');
+                        div.innerHTML = item.title;
+                        div.onclick = function () {
+                            document.getElementById(inputId).value = item.title;
+                            suggestionsContainer.innerHTML = ''; // Clear suggestions
+                        };
+                        suggestionsContainer.appendChild(div);
+                    });
+                }, (error) => {
+                    console.error(error);
+                });
+            }
+
+            function searchPlaces() {
+                routeObjects.forEach(function (route) {
+                    map.removeObject(route);
+                });
+                routeObjects = [];
+
+                var startAddress = document.getElementById('startAddress').value;
+                var endAddress = document.getElementById('endAddress').value;
+                var searchService = platform.getSearchService();
+
+                searchService.geocode({
+                    q: startAddress,
+                    in: 'countryCode:IND'
+                }, (result) => {
+                    // Assume the first result is the most relevant
+                    var startPosition = result.items[0].position;
+                    var startMarker = new H.map.Marker(startPosition);
+                    map.addObject(startMarker);
+                    map.setCenter(startPosition);
+
+                    searchService.geocode({
+                        q: endAddress,
+                        in: 'countryCode:IND'
+                    }, (result) => {
+                        // Assume the first result is the most relevant
+                        var endPosition = result.items[0].position;
+                        var endMarker = new H.map.Marker(endPosition);
+                        map.addObject(endMarker);
+
+                        // Calculate the route from the start position to the end position
+                        calculateRouteFromAtoB(platform, startPosition, endPosition);
+                    }, alert);
+                }, alert);
+            }
+
+            // Function to calculate and display a route from point A to point B
+            function calculateRouteFromAtoB(platform, startPoint, endPoint) {
+                var router = platform.getRoutingService(null, 8),
+                    routeRequestParams = {
+                        routingMode: 'fast',
+                        transportMode: 'truck',
+                        origin: `${startPoint.lat},${startPoint.lng}`, // Starting point
+                        destination: `${endPoint.lat},${endPoint.lng}`, // Ending point
+                        return: 'polyline'
+                    };
+
+                router.calculateRoute(
+                    routeRequestParams,
+                    onCarRouteSuccess,
+                    onError
+                );
+            }
+
+            // Function to handle the initial car route calculation
+            function onCarRouteSuccess(result) {
+                var route = result.routes[0];
+                var lineString = H.geo.LineString.fromFlexiblePolyline(route.sections[0].polyline);
+
+                // Create a polyline to display the car route:
+                var carRouteLine = new H.map.Polyline(lineString, {
+                    style: { strokeColor: 'blue', lineWidth: 3 }
+                });
+
+
+
+                // Add the car route polyline to the map:
+                map.addObjects([carRouteLine]);
+
+                routeObjects.push(carRouteLine);
+
+                // Calculate an optimized ambulance route based on real-time traffic
+                calculateAmbulanceRoute(platform, route, carRouteLine);
+            }
+
+            // Function to calculate an optimized ambulance route based on real-time traffic
+            function calculateAmbulanceRoute(platform, carRoute, carRouteLine) {
+                var router = platform.getRoutingService(null, 8),
+                    routeRequestParams = {
+                        routingMode: 'fast',
+                        transportMode: 'car',
+                        origin: `${carRoute.sections[0].departure.place.location.lat},${carRoute.sections[0].departure.place.location.lng}`, // Starting point
+                        destination: `${carRoute.sections[0].arrival.place.location.lat},${carRoute.sections[0].arrival.place.location.lng}`, // Ending point
+                        return: 'polyline,turnByTurnActions,actions,instructions,travelSummary',
+                        departure: 'now',
+                        vehicleLoadType: 'emergencyVehicle'
+                    };
+
+                router.calculateRoute(
+                    routeRequestParams,
+                    onAmbulanceRouteSuccess,
+                    onError
+                );
+            }
+
+            function onAmbulanceRouteSuccess(result) {
+                var route = result.routes[0];
+                var lineString = H.geo.LineString.fromFlexiblePolyline(route.sections[0].polyline);
+
+                // Create a polyline to display the ambulance route:
+                var ambulanceRouteLine = new H.map.Polyline(lineString, {
+                    style: { strokeColor: 'red', lineWidth: 3 }
+                });
+
+                // Add the ambulance route polyline to the map:
+                map.addObjects([ambulanceRouteLine]);
+
+                routeObjects.push(ambulanceRouteLine);
+
+                // Set the map's viewport to make the whole ambulance route visible:
+                map.getViewModel().setLookAtData({ bounds: ambulanceRouteLine.getBoundingBox() });
+            }
+
+            function onError(error) {
+                alert('Can\'t reach the remote server');
+            }
         </script>
     </body>
 
